@@ -1452,6 +1452,211 @@ def plugin(kernel, lifecycle):
             post.append(classify_new(data))
             return "elements", data
 
+        def create_growing_circle(
+            cx, cy, sides, iterations, ratio_in_percent, sidelen, startangle, gap
+        ):
+            geom = Geomstr()
+            if sides < 3:
+                sides = 3
+            shape_angle = math.tau / sides
+            myangle = startangle
+            sidelength = sidelen
+            sidedelta = sidelength * ratio_in_percent / 100.0
+            pt1 = cx + 1j * cy
+            for idx in range(iterations):
+                for side in range(sides):
+                    while myangle < 0:
+                        myangle += math.tau
+                    while myangle > math.tau:
+                        myangle -= math.tau
+
+                    pt2 = geom.polar(pt1, myangle, sidelength)
+                    geom.line(pt1, pt2)
+                    pt1 = pt2
+                    sidelength += sidedelta
+                    # sidedelta = sidelength * ratio_in_percent
+                    myangle += shape_angle
+                    myangle += gap
+            return geom
+
+        def update_node_growing_circle(node):
+            my_id = "growingcircle"
+            valid = True
+            try:
+                param = node.functional_parameter
+                if param is None or param[0] != my_id:
+                    valid = False
+            except (AttributeError, IndexError):
+                valid = False
+            if not valid:
+                # Not for me...
+                return
+            param = node.functional_parameter
+            if param is None:
+                return
+            pt0x = getit(param, 2, 0)
+            pt0y = getit(param, 3, 0)
+            pt1x = getit(param, 5, 0)
+            pt1y = getit(param, 6, 0)
+            ratio_in_percent = getit(param, 8, 0)
+            sides = getit(param, 10, 0)
+            iterations = getit(param, 12, 0)
+            igap = getit(param, 14, 0)
+            pt0 = Point(pt0x, pt0y)
+            pt1 = Point(pt1x, pt1y)
+            sidelen = pt0.distance_to(pt1)
+            startangle = pt0.angle_to(pt1)
+            gap = igap / 360 * math.tau
+            geom = create_growing_circle(
+                pt0x,
+                pt0y,
+                sides,
+                iterations,
+                ratio_in_percent,
+                sidelen,
+                startangle,
+                gap,
+            )
+            node.geometry = geom
+            node.altered()
+            pt0 = None
+            pt1 = None
+            for pt in geom.as_points():
+                if pt0 is None:
+                    pt0 = Point(pt.real, pt.imag)
+                elif pt1 is None:
+                    pt1 = Point(pt.real, pt.imag)
+                else:
+                    break
+            opposite_angle = math.tau / 2 + gap
+            while opposite_angle > math.tau:
+                opposite_angle -= math.tau
+            while opposite_angle < 0:
+                opposite_angle += math.tau
+            pt2 = Point.polar(pt0, opposite_angle, sidelen * ratio_in_percent)
+            node.functional_parameter = (
+                "growingcircle",
+                0,
+                pt0.x,
+                pt0.y,
+                0,
+                pt1.x,
+                pt1.y,
+                1,
+                ratio_in_percent,
+                1,
+                sides,
+                1,
+                iterations,
+                1,
+                igap,
+            )
+
+        @self.console_argument("sx", type=Length)
+        @self.console_argument("sy", type=Length)
+        @self.console_argument("sides", type=int)
+        @self.console_argument("iterations", type=int)
+        @self.console_argument("firstlength", type=Length)
+        @self.console_option("ratio", "r", type=int, help=_("Growth in %"))
+        @self.console_option("angle", "a", type=Angle, help=_("Start angle"))
+        @self.console_option(
+            "gap", "g", type=int, help=_("Delta angle between moves in degrees")
+        )
+        @context.console_command(
+            "growingcircle", help=_("growingcirlce sx sy sides iterations")
+        )
+        def growing_circle(
+            command,
+            channel,
+            _,
+            sx=None,
+            sy=None,
+            sides=None,
+            iterations=None,
+            firstlength=None,
+            ratio=None,
+            angle=None,
+            gap=None,
+            data=None,
+            post=None,
+            **kwargs,
+        ):
+            try:
+                if sx is None:
+                    sx = Length("0cm")
+                ssx = float(sx)
+                if sy is None:
+                    sy = Length("0cm")
+                ssy = float(sy)
+                # Fractional arc 2 = semicircle, 4 = quartercircle
+                if sides is None or sides < 2:
+                    sides = 2
+                if iterations is None:
+                    iterations = 5
+                if iterations < 1:
+                    iterations = 1
+                if angle is None:
+                    angle = Angle("0deg")
+                startangle = float(angle)
+                if firstlength is None:
+                    firstlength = Length("0.5cm")
+                sidelen = float(firstlength)
+                if ratio is None:
+                    ratio = 2  #  2% growth
+                if gap is None:
+                    gap = 0
+            except ValueError:
+                channel("Invalid data provided")
+                return
+            gap_angle = gap / 360 * math.tau
+            geom = create_growing_circle(
+                ssx,
+                ssy,
+                sides,
+                iterations,
+                ratio,
+                sidelen,
+                startangle,
+                gap_angle,
+            )
+            node = self.elem_branch.add(type="elem path", geometry=geom)
+            node.label = f"Growing Circle w. 1/{sides} arcs"
+            node.stroke = self.default_stroke
+            node.stroke_width = 1000  # self.default_strokewidth
+            node.altered()
+            pt0 = None
+            pt1 = None
+            for pt in geom.as_points():
+                if pt0 is None:
+                    pt0 = Point(pt.real, pt.imag)
+                elif pt1 is None:
+                    pt1 = Point(pt.real, pt.imag)
+                else:
+                    break
+            node.functional_parameter = (
+                "growingcircle",
+                0,
+                pt0.x,
+                pt0.y,
+                0,
+                pt1.x,
+                pt1.y,
+                1,
+                ratio,
+                1,
+                sides,
+                1,
+                iterations,
+                1,
+                gap,
+            )
+            # Newly created! Classification needed?
+            data = [node]
+            node.emphasized = True
+            post.append(classify_new(data))
+            return "elements", data
+
+
         # Let's register them
         # The info tuple contains three entries
         # 1) The function to be called to update the node after a parameter change
@@ -1551,7 +1756,7 @@ def plugin(kernel, lifecycle):
             {
                 "0": ("First point",),
                 "1": ("First edge",),
-                "2": ("Growth Ratio", 0, 100),
+                "2": ("Growth Ratio", 0, 50),
                 "3": ("Sides", 3, 12),
                 "4": ("Iterations", 1, 45),
                 "5": ("Gap", 0, 15),
@@ -1559,3 +1764,17 @@ def plugin(kernel, lifecycle):
             False,
         )
         kernel.register("element_update/growingshape", info)
+
+        info = (
+            update_node_growing_circle,
+            {
+                "0": ("First point",),
+                "1": ("First edge",),
+                "2": ("Growth Ratio", 0, 50),
+                "3": ("Sides", 3, 12),
+                "4": ("Iterations", 1, 45),
+                "5": ("Gap", 0, 15),
+            },
+            False,
+        )
+        kernel.register("element_update/growingcircle", info)
