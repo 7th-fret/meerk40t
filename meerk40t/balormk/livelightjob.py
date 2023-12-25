@@ -34,6 +34,9 @@ class LiveLightJob:
         self.quantization = 50
         self.mode = mode
         self.points = None
+        self._stored_points = None
+        self._last_iteration = 0
+        self._acceptable_time = 3.0
         if self.mode == "full":
             self.label = "Live Full Light Job"
             self._mode_light = self._full
@@ -63,6 +66,24 @@ class LiveLightJob:
 
     def is_running(self):
         return not self.stopped
+
+    def reset_parameters(self):
+        self.points = None
+        self._stored_points = None
+        self.quantization = 50
+
+    def adjust_resolution(self):
+        MAX_QUANTIZATION = 1000
+        # Do we need to increase the quantization?
+        if self._last_iteration <= self._acceptable_time:
+            return
+        new_quantization = self.quantization + 100
+        if new_quantization > MAX_QUANTIZATION:
+            new_quantization = MAX_QUANTIZATION
+        if self.quantization != new_quantization:
+            print (f"Needed to adjust the quantization: {new_quantization} - execution time: {self._last_iteration:.2f}")
+            self.quantization = new_quantization
+            self._stored_points = None
 
     def execute(self, driver):
         """
@@ -134,7 +155,7 @@ class LiveLightJob:
         @return:
         """
         self.changed = True
-        self.points = None
+        self.reset_parameters()
 
     def process(self, con):
         """
@@ -143,12 +164,13 @@ class LiveLightJob:
         @return:
         """
         if self.stopped:
+            self.reset_parameters()
             return False
         bounds = self.service.elements.selected_area()
         if self._last_bounds is not None and bounds != self._last_bounds:
             # Emphasis did not change but the bounds did. We dragged something.
             self.changed = True
-            self.points = None
+            self.reset_parameters()
         self._last_bounds = bounds
 
         if self.changed:
@@ -289,10 +311,11 @@ class LiveLightJob:
         """
         delay_dark = self.service.delay_jump_long
         delay_between = self.service.delay_jump_short
-
-        points = list(geometry.as_equal_interpolated_points(distance=self.quantization))
+        if not self._stored_points:
+            self._stored_points = list(geometry.as_equal_interpolated_points(distance=self.quantization))
         move = True
-        for i, e in enumerate(points):
+        start_time = time.perf_counter()
+        for i, e in enumerate(self._stored_points):
             if self.stopped:
                 # Abort due to stoppage.
                 return False
@@ -322,6 +345,9 @@ class LiveLightJob:
                 move = False
                 continue
             con.light(x, y, long=delay_between, short=delay_between)
+        end_time = time.perf_counter()
+        self._last_iteration = end_time - start_time
+        self.adjust_resolution()
         return True
 
     def _light_elements(self, con, elements):
@@ -344,9 +370,11 @@ class LiveLightJob:
 
         redlight_matrix = self._redlight_adjust_matrix()
         if self.stopped:
+            self._stored_points = None
             return False
 
         if self.changed:
+            self._stored_points = None
             return True
 
         # Move to device space.
