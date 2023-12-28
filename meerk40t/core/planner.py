@@ -298,10 +298,10 @@ class Planner(Service):
         return float(Length(v))
 
     def length_x(self, v):
-        return float(Length(v, relative_length=self.device.view.width))
+        return float(Length(v, relative_length=cutplan.device.view.width))
 
     def length_y(self, v):
-        return float(Length(v, relative_length=self.device.view.height))
+        return float(Length(v, relative_length=cutplan.device.view.height))
 
     def get_or_make_plan(self, plan_name):
         """
@@ -380,7 +380,8 @@ class Planner(Service):
                 busy.change(msg=_("Copy data"), keep=1)
                 busy.show()
 
-            operations = data  # unused.
+            cutplan = data  # unused.
+            cutplan.device = self.device
             if command == "copy-selected":
                 operations = list(self.elements.ops(emphasized=True))
                 copy_selected = True
@@ -391,14 +392,14 @@ class Planner(Service):
             def init_settings():
                 for prefix in ("prepend", "append"):
                     str_count = f"{prefix}_op_count"
-                    self.device.setting(int, str_count, 0)
-                    value = getattr(self.device, str_count, 0)
+                    cutplan.device.setting(int, str_count, 0)
+                    value = getattr(cutplan.device, str_count, 0)
                     if value > 0:
                         for idx in range(value):
                             attr1 = f"{prefix}_op_{idx:02d}"
                             attr2 = f"{prefix}_op_param_{idx:02d}"
-                            self.device.setting(str, attr1, "")
-                            self.device.setting(str, attr2, "")
+                            cutplan.device.setting(str, attr1, "")
+                            cutplan.device.setting(str, attr2, "")
 
             def add_ops(is_prepend):
                 # Do we have any default actions to include first?
@@ -408,9 +409,9 @@ class Planner(Service):
                     prefix = "append"
                 try:
                     if is_prepend:
-                        count = self.device.prepend_op_count
+                        count = cutplan.device.prepend_op_count
                     else:
-                        count = self.device.append_op_count
+                        count = cutplan.device.append_op_count
                 except AttributeError:
                     count = 0
                 idx = 0
@@ -418,9 +419,9 @@ class Planner(Service):
                     addop = None
                     attr1 = f"{prefix}_op_{idx:02d}"
                     attr2 = f"{prefix}_op_param_{idx:02d}"
-                    if hasattr(self.device, attr1):
-                        optype = getattr(self.device, attr1, None)
-                        opparam = getattr(self.device, attr2, None)
+                    if hasattr(cutplan.device, attr1):
+                        optype = getattr(cutplan.device, attr1, None)
+                        opparam = getattr(cutplan.device, attr2, None)
                         if optype is not None:
                             if optype == "util console":
                                 addop = ConsoleOperation(command=opparam)
@@ -707,6 +708,18 @@ class Planner(Service):
                 busy.show()
 
             data.clear()
+            self.signal("plan", data.name, 0)
+            return data_type, data
+
+        @self.console_command(
+            "device",
+            help=_("plan<?> device - uses the active device for the plan"),
+            input_type="plan",
+            output_type="plan",
+        )
+        def plan_device(data_type=None, data=None, **kwgs):
+            # Update Info-panel if displayed
+            data.device = self.device
             self.signal("plan", data.name, 0)
             return data_type, data
 

@@ -64,6 +64,7 @@ class CutPlan:
         self.channel = self.context.channel("optimize", timestamp=True)
         self.outline = None
         self._previous_bounds = None
+        self.device = None
 
     def __str__(self):
         parts = list()
@@ -122,7 +123,9 @@ class CutPlan:
         if they need operations. They are also expected to add any relevant commands to the commands list. The commands
         list sequentially in the next stage.
         """
-        device = self.context.device
+        if self.device is None:
+            self.device = self.context.device
+        device = self.device
 
         scene_to_device_matrix = device.view.matrix
 
@@ -578,6 +581,7 @@ class CutPlan:
         @return:
         """
         # Update Info-panel if displayed
+        device = self.device
         busy = self.context.kernel.busyinfo
         _ = self.context.kernel.translation
         if busy.shown:
@@ -591,8 +595,8 @@ class CutPlan:
                     float(Length(stol))
                     * 2
                     / (
-                        self.context.device.view.native_scale_x
-                        + self.context.device.view.native_scale_y
+                        device.view.native_scale_x
+                        + device.view.native_scale_y
                     )
                 )
             except ValueError:
@@ -634,7 +638,7 @@ class CutPlan:
             busy.change(msg=_("Optimize travel"), keep=1)
             busy.show()
         try:
-            last = self.context.device.native
+            last = self.device.native
         except AttributeError:
             last = None
         tolerance = 0
@@ -645,8 +649,8 @@ class CutPlan:
                     float(Length(stol))
                     * 2
                     / (
-                        self.context.device.view.native_scale_x
-                        + self.context.device.view.native_scale_y
+                        self.device.view.native_scale_x
+                        + self.device.view.native_scale_y
                     )
                 )
             except ValueError:

@@ -35,6 +35,9 @@ def plugin(kernel, lifecycle):
 
             if data is not None:
                 # If plan data is in data, then we copy that and move on to next step.
+                if data.device is not None:
+                    device = data.device
+                    spooler = data.device.spooler
                 data.final()
                 loops = 1
                 elements = kernel.elements
