@@ -901,7 +901,6 @@ class SimulationPanel(wx.Panel, Job):
         )
 
         self.button_spool = wx.Button(self, wx.ID_ANY, _("Send to Laser"))
-        self.button_spool.SetToolTip(_("Send the current cutplan to the laser."))
         self._slided_in = None
 
         self.__set_properties()
@@ -934,11 +933,16 @@ class SimulationPanel(wx.Panel, Job):
         ##############
         # BUILD SCENE
         ##############
-
-        self.widget_scene.add_scenewidget(SimulationWidget(self.widget_scene, self))
+        self.sim_widget = SimulationWidget(self.widget_scene, self)
+        self.widget_scene.add_scenewidget(self.sim_widget)
         self.sim_travel = SimulationTravelWidget(self.widget_scene, self)
         self.sim_travel.display = self.display_travel
         self.widget_scene.add_scenewidget(self.sim_travel)
+
+        self.button_spool.SetToolTip(
+            _("Send the current cutplan to the laser.") +
+            f"\n{self.sim_widget.device.name}"
+        )
 
         self.grid = GridWidget(
             self.widget_scene, name="Simulation", suppress_labels=True
@@ -957,7 +961,8 @@ class SimulationPanel(wx.Panel, Job):
         self.widget_scene.add_scenewidget(
             BedWidget(self.widget_scene, name="Simulation")
         )
-        self.widget_scene.add_interfacewidget(SimReticleWidget(self.widget_scene, self))
+        self.recticle_widget = SimReticleWidget(self.widget_scene, self)
+        self.widget_scene.add_interfacewidget(self.recticle_widget)
 
         self.parent.add_module_delegate(self.options_optimize)
         self.context.setting(int, "simulation_mode", 0)
@@ -1213,7 +1218,7 @@ class SimulationPanel(wx.Panel, Job):
         self.widget_scene.request_refresh()
 
     def fit_scene_to_panel(self):
-        bbox = self.context.device.view.source_bbox()
+        bbox = self.sim_widget.device.view.source_bbox()
         self.widget_scene.widget_root.focus_viewport_scene(
             bbox, self.view_pane.Size, 0.1
         )
@@ -1389,6 +1394,19 @@ class SimulationPanel(wx.Panel, Job):
         self.operations = self.cutplan.plan
         self.subpanel_cutcode.set_cutcode_entry(None, self.plan_name)
         self.subpanel_operations.set_cut_plan(self.cutplan)
+        # Reset widgets
+        device = self.cutplan.device
+        if device is None:
+            device = self.context.device
+            self.cutplan.device = device
+        self.sim_widget.reset(device)
+        self.sim_travel.reset(device)
+        self.recticle_widget.reset(device)
+        self.button_spool.SetToolTip(
+            _("Send the current cutplan to the laser.") +
+            f"\n{self.sim_widget.device.name}"
+        )
+
         # for e in self.operations:
         #     print(f"Refresh: {type(e).__name__} {e}")
         #     try:
@@ -1586,7 +1604,7 @@ class SimulationPanel(wx.Panel, Job):
     def pane_show(self):
         self.context.setting(str, "units_name", "mm")
 
-        bbox = self.context.device.view.source_bbox()
+        bbox = self.sim_widget.device.view.source_bbox()
         self.widget_scene.widget_root.focus_viewport_scene(
             bbox, self.view_pane.Size, 0.1
         )
@@ -1690,12 +1708,23 @@ class SimulationWidget(Widget):
     done such that both progress of 0 and 1 render nothing and items begin to draw at 2.
     """
 
-    def __init__(self, scene, sim):
+    def __init__(self, scene, sim, device=None):
         Widget.__init__(self, scene, all=False)
         self.renderer = LaserRender(self.scene.context)
         self.sim = sim
-        self.matrix.post_cat(~scene.context.device.view.matrix)
+        if device is None:
+            device = scene.context.device
+        self.device = device
+        self.matrix.post_cat(~self.device.view.matrix)
         self.last_msg = None
+
+    def reset(self, device=None):
+        self.matrix.reset()
+        if device is None:
+            device = self.scene.context.device
+        self.device = device
+        self.matrix.post_cat(~self.device.view.matrix)
+        self.on_matrix_change()
 
     def process_draw(self, gc: wx.GraphicsContext):
         if self.sim.progress >= 0:
@@ -1858,13 +1887,25 @@ class SimulationTravelWidget(Widget):
     within the simulation scene.
     """
 
-    def __init__(self, scene, sim):
+    def __init__(self, scene, sim, device=None):
         Widget.__init__(self, scene, all=False)
-        self.sim_matrix = ~scene.context.device.view.matrix
+        if device is None:
+            device = scene.context.device
+        self.device = device
+        self.sim_matrix = ~self.device.view.matrix
         self.sim = sim
-        self.matrix.post_cat(~scene.context.device.view.matrix)
+        self.matrix.post_cat(~self.device.view.matrix)
         self.display = True
         self.initvars()
+
+    def reset(self, device):
+        self.matrix.reset()
+        if device is None:
+            device = self.scene.context.device
+        self.device = device
+        self.matrix.post_cat(~self.device.view.matrix)
+        self.on_matrix_change()
+        self.sim_matrix = ~self.device.view.matrix
 
     def initvars(self):
         self.starts = list()
@@ -1976,10 +2017,15 @@ class SimReticleWidget(Widget):
     the end of the current cut object.
     """
 
-    def __init__(self, scene, sim):
-        Widget.__init__(self, scene, all=False)
-        self.sim_matrix = ~scene.context.device.view.matrix
+    def __init__(self, scene, sim, device=None):
+        Widget.__init__(self, scene, all=False,)
+        if device is None:
+            device = scene.context.device
+        self.sim_matrix = ~device.view.matrix
         self.sim = sim
+
+    def reset(self, device):
+        self.sim_matrix = ~device.view.matrix
 
     def process_draw(self, gc):
         x = 0
