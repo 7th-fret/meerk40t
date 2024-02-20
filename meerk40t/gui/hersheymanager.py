@@ -1,6 +1,7 @@
 import os
 
 import wx
+import wx.adv
 
 from meerk40t.gui.choicepropertypanel import ChoicePropertyPanel
 from meerk40t.gui.icons import (
@@ -41,6 +42,84 @@ def remove_fontfile(fontfile):
                 os.remove(bmpfile)
         except (OSError, RuntimeError, PermissionError, FileNotFoundError):
             pass
+
+
+class FontSelectComboBox(wx.adv.OwnerDrawnComboBox):
+
+    def __init__(self, parent, id, context=None, **kwds):
+        super().__init__(parent, id, **kwds)
+        self.context = context
+        self.fonts = self.context.fonts.available_fonts()
+
+    # Overridden from OwnerDrawnComboBox, called to draw each
+    # item in the list
+    def OnDrawItem(self, dc, rect, item, flags):
+        if item == wx.NOT_FOUND:
+            # painting the control, but there is no valid item selected yet
+            return
+
+        r = wx.Rect(*rect)  # make a copy
+        r.Deflate(3, 5)
+        fontname = self.GetString(item)
+        full_font_file = self.fonts[item][0]
+        bmp = self.context.fonts.preview_file(full_font_file)
+        # if bmp is not None:
+        #     bmap_bundle = wx.BitmapBundle().FromBitmap(bmp)
+        # else:
+        #     bmap_bundle = wx.BitmapBundle()
+        # self.bmp_preview.SetBitmap(bmap_bundle)
+        if bmp is None:
+            bmp = wx.NullBitmap
+        if flags & wx.adv.ODCB_PAINTING_CONTROL:
+            # for painting the control itself
+            dc.DrawText(
+                fontname,
+                int(r.x + 3),
+                int((r.y + 0) + ((r.height / 2) - dc.GetCharHeight()) / 2),
+            )
+
+        else:
+            # for painting the items in the popup
+            dc.DrawText(
+                fontname,
+                int(r.x + 3),
+                int((r.y + 0) + (1 * (r.height / 4) - dc.GetCharHeight()) / 2),
+            )
+            print (f"Drawing Bitmap at {r.x}, {r.y} {r.width}x{r.height}, bmap: {bmp.Size}")
+            dc.DrawBitmap(
+                bmp,
+                int(r.x + 3),
+                int((r.y + dc.GetCharHeight()) / 2),
+            )
+
+    # Overridden from OwnerDrawnComboBox, called for drawing the
+    # background area of each item.
+    def OnDrawBackground(self, dc, rect, item, flags):
+        # If the item is selected, or its item # iseven, or we are painting the
+        # combo control itself, then use the default rendering.
+        if item & 1 == 0 or flags & (
+            wx.adv.ODCB_PAINTING_CONTROL | wx.adv.ODCB_PAINTING_SELECTED
+        ):
+            wx.adv.OwnerDrawnComboBox.OnDrawBackground(self, dc, rect, item, flags)
+            return
+
+        # Otherwise, draw every other background with different colour.
+        bgCol = wx.Colour(240, 240, 250)
+        dc.SetBrush(wx.Brush(bgCol))
+        dc.SetPen(wx.Pen(bgCol))
+        dc.DrawRectangle(rect)
+
+    # Overridden from OwnerDrawnComboBox, should return the height
+    # needed to display an item in the popup, or -1 for default
+    def OnMeasureItem(self, item):
+        # Simply demonstrate the ability to have variable-height items
+        return 2 * 24
+
+    # Overridden from OwnerDrawnComboBox.  Callback for item width, or
+    # -1 for default/undetermined
+    def OnMeasureItemWidth(self, item):
+        return -1
+        # default - will be measured from text width
 
 
 class FontGlyphPicker(wx.Dialog):
@@ -735,6 +814,17 @@ class PanelFontSelect(wx.Panel):
         sizer_fonts = StaticBoxSizer(
             self, wx.ID_ANY, _("Fonts (double-click to use)"), wx.VERTICAL
         )
+
+        self.all_fonts = self.context.fonts.available_fonts()
+        font_desc = [entry[1] for entry in self.all_fonts]
+        test = FontSelectComboBox(
+            self,
+            wx.ID_ANY,
+            context=context,
+            choices=font_desc,
+            style=wx.CB_READONLY,
+        )
+        mainsizer.Add(test, 0, 0, 0)
         mainsizer.Add(sizer_fonts, 1, wx.EXPAND, 0)
 
         self.list_fonts = wx.ListBox(self, wx.ID_ANY)
@@ -1090,7 +1180,7 @@ class PanelFontManager(wx.Panel):
             None,
             _("Choose font directory"),
             fontdir,
-            style=wx.DD_DEFAULT_STYLE
+            style=wx.DD_DEFAULT_STYLE,
             # | wx.DD_DIR_MUST_EXIST
         )
         if dlg.ShowModal() == wx.ID_OK:
@@ -1171,7 +1261,7 @@ class PanelFontManager(wx.Panel):
             defaultDir=defdir,
             defaultFile="",
             wildcard=wildcard,
-            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST | wx.FD_MULTIPLE | wx.FD_PREVIEW
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST | wx.FD_MULTIPLE | wx.FD_PREVIEW,
             #            | wx.FD_SHOW_HIDDEN,
         )
         try:
